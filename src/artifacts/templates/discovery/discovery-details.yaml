@@ -1,0 +1,6 @@
+# Placeholder discovery template — replace with the real schema shape.
+application_id: ""
+servers: []
+databases: []
+middleware: []
+blockers: []
