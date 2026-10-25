@@ -12,10 +12,21 @@ from src.workflows.agents.prompt_blocks import (
 
 logger = logging.getLogger(__name__)
 
+
+def build_discovery_subagents() -> list[dict[str, Any]]:
+    """Same instruction-following worker the design agent uses."""
+    from src.workflows.agents.design.subagents import build_general_purpose_subagent
+
+    return [build_general_purpose_subagent()]
+
+
 _DISCOVERY_RESPONSIBILITIES = """## Agent Responsibilities
 
+Your canvas is `/scratch/discovery/canvas.md`.
+Read `/scratch/supervisor/canvas.md` for intake facts. Write only your own canvas, drafts, and the deliverables the skill names.
 Load the applicable discovery skill from the available skills list and follow it
-end to end."""
+end to end. Delegate heavy extraction to `general-purpose` and put the complete
+instructions in the task."""
 
 _DISCOVERY_SYSTEM_PROMPT = compose_system_prompt(
     role="Discovery",
@@ -75,6 +86,7 @@ async def build_discovery_agent(*, llm: Any, store: Any | None = None) -> Any:
         "name": "dice_discovery_agent",
         "backend": get_shared_backend(),
         "state_schema": DICEDeepAgentState,
+        "subagents": build_discovery_subagents(),
     }
 
     if store is not None:

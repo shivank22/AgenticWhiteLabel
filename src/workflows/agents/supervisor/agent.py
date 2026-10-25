@@ -9,18 +9,38 @@ from src.workflows.agents.prompt_blocks import (
 
 _SUPERVISOR_RESPONSIBILITIES = """## Agent Responsibilities
 
+Your canvas is `/scratch/supervisor/canvas.md`.
+You are the only agent that reads every canvas. Before any user summary or phase change, read `/artifacts/artifact.yaml` and all three canvas files, then speak from those files.
 Coordinate the application migration lifecycle from intake through discovery and
 target-platform design:
-
 1. **Intake**: Follow the collector skill.
-2. **Discovery & Review**: Delegate discovery to `discovery-agent`, summarize the outcome for the user, and confirm whether they are satisfied. If not, change only the one artifact they named, directly or through `general-purpose`, and re-confirm.
-3. **Design & Review**: Delegate design to `design-agent`, summarize the outcome for the user, and confirm whether they are satisfied. If not, change only the one artifact they named, directly or through `general-purpose`, and re-confirm.
+2. **Discovery & Review**: Delegate discovery to `discovery-agent`. The task names the discovery skill path, `/scratch/supervisor/canvas.md`, and `/scratch/discovery/canvas.md`. Summarize the outcome for the user, and confirm whether they are satisfied. If not, delegate to `general-purpose`. The task states only the artifact path and the change. Re-confirm.
+3. **Design & Review**: Delegate design to `design-agent`. The task names the design skill path, `/scratch/discovery/canvas.md`, and `/scratch/design/canvas.md`. Summarize the outcome for the user, and confirm whether they are satisfied. If not, delegate to `general-purpose`. The task states only the artifact path and the change. Re-confirm.
 4. **Completion**: Mark the workflow complete once the user approves the design."""
 
 _SUPERVISOR_SYSTEM_PROMPT = compose_system_prompt(
     role="Supervisor",
     responsibilities=_SUPERVISOR_RESPONSIBILITIES,
 )
+
+_REWORK_PROMPT = """You change the artifact named in the task. The task states the path and the change.
+Use `ls` to list `/artifacts/`, `read_file` to read any artifact, and `write_file` to write the changed artifact in full.
+You may read every file under `/artifacts/`. Write only the path named in the task.
+Do not use `edit_file`. Validated artifacts reject in-place edits.
+"""
+
+
+def build_supervisor_rework_subagent() -> dict[str, Any]:
+    """Rework worker. The task is the artifact path and the change."""
+    return {
+        "name": "general-purpose",
+        "description": (
+            "Changes the artifact the user named. "
+            "The task states the artifact path and the change."
+        ),
+        "system_prompt": _REWORK_PROMPT,
+        "tools": [],
+    }
 
 
 async def build_supervisor_agent(
@@ -34,7 +54,6 @@ async def build_supervisor_agent(
     from src.workflows.agents.deep_state import DICEDeepAgentState
     from src.workflows.agents.design.agent import build_design_agent
     from src.workflows.agents.discovery.agent import build_discovery_agent
-    from src.workflows.agents.design.subagents import build_general_purpose_subagent
     from src.workflows.agents.supervisor.tools import (
         ask_user,
         ask_user_interrupt,
@@ -64,20 +83,22 @@ async def build_supervisor_agent(
         {
             "name": "discovery-agent",
             "description": (
-                "Executes application discovery and registers deliverables in "
-                "/artifacts/artifact.yaml."
+                "Executes application discovery, writes "
+                "/scratch/discovery/canvas.md, "
+                "and registers deliverables in /artifacts/artifact.yaml."
             ),
             "runnable": discovery_runnable,
         },
         {
             "name": "design-agent",
             "description": (
-                "Executes target-platform migration design and registers "
-                "deliverables in /artifacts/artifact.yaml."
+                "Executes target-platform migration design, writes "
+                "/scratch/design/canvas.md, "
+                "and registers deliverables in /artifacts/artifact.yaml."
             ),
             "runnable": design_runnable,
         },
-        build_general_purpose_subagent(),
+        build_supervisor_rework_subagent(),
     ]
 
     tools = [

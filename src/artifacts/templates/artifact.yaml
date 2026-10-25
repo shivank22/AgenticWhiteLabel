@@ -1,0 +1,10 @@
+# Manifest shape. Fill the empty fields. Do not store the canvas body here.
+application:
+  aa_number: ""
+  name: ""
+status: intake
+summary: ""
+deliverables: []
+# - path: /artifacts/<phase>/<deliverable>
+#   owner: discovery
+#   summary: ""

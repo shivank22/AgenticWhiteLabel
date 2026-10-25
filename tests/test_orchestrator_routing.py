@@ -13,12 +13,18 @@ from langchain_quickjs import CodeInterpreterMiddleware
 from src.validators import has_validator, validate_artifact
 from src.workflows.agents.design.subagents import build_design_subagents
 from src.workflows.agents.design.agent import build_design_agent
-from src.workflows.agents.discovery.agent import build_discovery_agent
+from src.workflows.agents.discovery.agent import (
+    build_discovery_agent,
+    build_discovery_subagents,
+)
 from src.workflows.agents.prompt_blocks import (
     build_default_middleware,
     compose_system_prompt,
 )
-from src.workflows.agents.supervisor.agent import build_supervisor_agent
+from src.workflows.agents.supervisor.agent import (
+    build_supervisor_agent,
+    build_supervisor_rework_subagent,
+)
 from src.workflows.graphs.orchestrator_graph import (
     _route_after_supervisor,
     _route_from_start,
@@ -75,17 +81,52 @@ def test_default_middleware_and_workspace_prompt():
 
     prompt = compose_system_prompt(role="Design", responsibilities="Follow the skill.")
     assert "/artifacts/artifact.yaml" in prompt
-    assert "/scratch/canvas.md" in prompt
+    assert "notes.md" not in prompt
+    assert "/scratch/design/canvas.md" in prompt
+    assert "/scratch/supervisor/canvas.md" in prompt
+    assert "/scratch/discovery/canvas.md" in prompt
     assert "/skills/" in prompt
     assert "/templates/" in prompt
-    assert "UK8S-Discovery-Baseline.md" not in prompt
+    assert "read_file" in prompt
+    assert "SKILL.md" in prompt
+    assert "limit=1000" in prompt
+    assert "skill-router phases" in prompt
+    assert "fresh message list" in prompt
+    assert "every module" not in prompt
+    assert "UK8S" not in prompt
+
+    supervisor_prompt = compose_system_prompt(
+        role="Supervisor",
+        responsibilities="Coordinate.",
+    )
+    assert "skill-router phases" not in supervisor_prompt
+    assert "limit=1000" in supervisor_prompt
+
+    rework = build_supervisor_rework_subagent()
+    assert rework["name"] == "general-purpose"
+    assert rework["description"] == (
+        "Changes the artifact the user named. "
+        "The task states the artifact path and the change."
+    )
+    assert "`ls`" in rework["system_prompt"]
+    assert "`read_file`" in rework["system_prompt"]
+    assert "`write_file`" in rework["system_prompt"]
+    assert "edit_file" in rework["system_prompt"]
+    assert rework["tools"] == []
 
     subagents = build_design_subagents()
     assert [spec["name"] for spec in subagents] == ["general-purpose"]
-    assert "Follow those instructions exactly" in subagents[0]["system_prompt"]
-    assert "ask_user" in subagents[0]["system_prompt"]
-    assert "ask_user_interrupt" in subagents[0]["system_prompt"]
-    assert "UK8S" not in subagents[0]["system_prompt"]
+    assert [spec["name"] for spec in build_discovery_subagents()] == ["general-purpose"]
+    worker_prompt = subagents[0]["system_prompt"]
+    assert "Follow those instructions exactly" in worker_prompt
+    assert "/scratch/canvas.md" not in worker_prompt
+    assert "output path" in worker_prompt
+    assert "status" in worker_prompt
+    assert "paths written" in worker_prompt
+    assert "gaps" in worker_prompt
+    assert "ask_user" in worker_prompt
+    assert "ask_user_interrupt" in worker_prompt
+    assert "UK8S" not in worker_prompt
     assert {tool.name for tool in subagents[0]["tools"]} == {
         "ask_user",
         "ask_user_interrupt",
@@ -93,8 +134,26 @@ def test_default_middleware_and_workspace_prompt():
     assert "ask_user_interrupt" in prompt
 
 
+def test_artifact_write_replaces_existing_file():
+    from deepagents.backends import StoreBackend
+
+    from src.workflows.backends.validating_backend import build_validating_store_backend
+
+    backend = build_validating_store_backend(StoreBackend)(
+        store=InMemoryStore(),
+        namespace=lambda _runtime: ("test", "filesystem"),
+    )
+    path = "/artifacts/design/future-platform.md"
+    assert backend.write(path, "first").error is None
+    assert backend.write(path, "second").error is None
+    assert "second" in backend.read(path).file_data["content"]
+    assert backend.write(path, "  ").error is not None
+    assert "second" in backend.read(path).file_data["content"]
+
+
 def test_any_artifact_path_is_non_empty_validated():
     assert has_validator("artifacts/design/future-platform.md")
     assert validate_artifact("artifacts/design/future-platform.md", "ok").ok
     assert not validate_artifact("artifacts/design/future-platform.md", "  ").ok
-    assert not has_validator("scratch/canvas.md")
+    assert not has_validator("scratch/design/canvas.md")
+    assert not has_validator("scratch/discovery/canvas.md")

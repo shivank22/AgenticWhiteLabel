@@ -11,6 +11,8 @@ from src.workflows.agents.prompt_blocks import (
 
 _DESIGN_RESPONSIBILITIES = """## Design Contract
 
+Your canvas is `/scratch/design/canvas.md`.
+Read `/artifacts/artifact.yaml` and `/scratch/discovery/canvas.md`. Discovery tools also write documents on this filesystem under `/scratch/discovery/`. Use the `ls` tool on `/scratch/discovery/` to see what is visible, and read those documents before you design. When you delegate, name those paths in the task. Write only your own canvas, drafts, and the deliverables the skill names.
 Confirm the target migration platform with the user if not already selected,
 load the matching migration skill from the available skills list, and follow it
 end to end. Delegate detailed work to `general-purpose` and put the complete
