@@ -1,6 +1,12 @@
 """Supervisor agent tools — HITL and application registry."""
 
-from src.workflows.tools.hitl import ask_user, ask_user_interrupt, set_phase
+from src.workflows.tools.hitl import (
+    ask_user,
+    ask_user_interrupt,
+    check_phase_readiness,
+    set_phase,
+    transition_phase,
+)
 from src.workflows.tools.stubs import (
     create_application_migration,
     instantiate_application,
@@ -11,7 +17,9 @@ from src.workflows.tools.stubs import (
 __all__ = [
     "ask_user",
     "ask_user_interrupt",
+    "check_phase_readiness",
     "set_phase",
+    "transition_phase",
     "instantiate_application",
     "list_application_migrations",
     "create_application_migration",

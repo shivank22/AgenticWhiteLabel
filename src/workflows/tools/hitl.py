@@ -186,8 +186,100 @@ def is_approval(value: Any) -> bool:
 
 @tool
 def set_phase(phase: str) -> Command:
-    """Update the outer-graph phase channel (supervisor / specialist handoff)."""
+    """Update the outer-graph phase channel (supervisor / specialist handoff).
+
+    NOTE: Prefer transition_phase() which validates prerequisites first.
+    This tool bypasses checks and should only be used for recovery/override.
+    """
     normalised = str(phase or "").strip().lower()
     if normalised == "completed":
         normalised = "complete"
     return Command(update={"phase": normalised})
+
+
+def _extract_state_from_config(config: RunnableConfig | None) -> dict[str, Any]:
+    """Extract graph state from RunnableConfig."""
+    if config is None:
+        return {}
+    configurable = config.get("configurable", {})
+    state: dict[str, Any] = {}
+    for key in ("phase", "aa_number", "discovery_status", "application_id"):
+        if key in configurable:
+            state[key] = configurable[key]
+    return state
+
+
+@tool
+def check_phase_readiness(
+    target_phase: str,
+    config: RunnableConfig = None,
+) -> dict[str, Any]:
+    """Check if prerequisites are met for transitioning to target_phase.
+
+    Returns structured assessment:
+    - allowed: whether transition can proceed
+    - current_phase: current phase
+    - target_phase: requested phase
+    - checks: list of individual check results
+    - message: summary message
+
+    Call this to diagnose what's blocking a phase transition.
+    """
+    from src.workflows.backends import get_shared_backend
+    from src.workflows.phase_requirements import check_phase_requirements
+
+    backend = get_shared_backend()
+    state = _extract_state_from_config(config)
+
+    result = check_phase_requirements(target_phase, state, backend)
+    return result.to_dict()
+
+
+@tool
+def transition_phase(
+    target_phase: str,
+    config: RunnableConfig = None,
+) -> Command | dict[str, Any]:
+    """Transition to a new phase after validating all prerequisites.
+
+    Deterministically checks required files and state before allowing transition:
+    - discovery: requires artifact.yaml, supervisor canvas, aa_number
+    - design: requires discovery artifacts, discovery_status=complete
+    - complete: requires design artifacts
+
+    Returns Command to update phase if allowed, or a dict with failed checks
+    and guidance if prerequisites are not met.
+    """
+    from src.workflows.backends import get_shared_backend
+    from src.workflows.phase_requirements import PHASES, check_phase_requirements
+
+    backend = get_shared_backend()
+    state = _extract_state_from_config(config)
+
+    result = check_phase_requirements(target_phase, state, backend)
+
+    if result.allowed:
+        return Command(update={"phase": result.target_phase})
+
+    failed_checks = [c for c in result.checks if not c.passed]
+    return {
+        "status": "blocked",
+        "allowed": False,
+        "current_phase": result.current_phase,
+        "target_phase": result.target_phase,
+        "message": result.message,
+        "failed_checks": [
+            {"type": c.check_type, "target": c.target, "message": c.message}
+            for c in failed_checks
+        ],
+        "requirements": {
+            "files": PHASES.get(result.target_phase, {}).get("required_files", []),
+            "state": PHASES.get(result.target_phase, {}).get("required_state", []),
+            "status": PHASES.get(result.target_phase, {}).get("required_status", {}),
+        },
+        "guidance": (
+            f"To transition to '{result.target_phase}', ensure all required "
+            f"files exist and state fields are set. Use check_phase_readiness('{result.target_phase}') "
+            "for detailed diagnostics."
+        ),
+    }
