@@ -27,6 +27,23 @@ def _workspace(role: str) -> str:
     canvas = agent_canvas_path(role)
     folder = _AGENT_FOLDERS.get(role.strip().lower(), "<agent>")
     scratch_list = "\n".join(f"- `{path}`" for path in _SCRATCH_FILES)
+    if role.strip().lower() in {"discovery", "design"}:
+        plan = (
+            "Pick the one skill whose description matches the user's answer. "
+            "`read_file` that `SKILL.md` once as the router and turn its phases into "
+            "`write_todos`. Read only the module or render contract for the "
+            "`in_progress` phase. Use `read_file(path, limit=1000)` when that file is "
+            "long, then continue at `offset=1000` only if that page stops before the "
+            "phase's last step."
+        )
+    else:
+        plan = (
+            "Pick the one skill whose description matches the user's answer. "
+            "`read_file` that `SKILL.md` once. Read only the module or render contract "
+            "for the current step. Use `read_file(path, limit=1000)` when that file is "
+            "long, then continue at `offset=1000` only if that page stops before the "
+            "phase's last step."
+        )
     return f"""## Workspace
 
 Mounted directories:
@@ -40,7 +57,7 @@ Your canvas is `{canvas}`. Durable scratch files:
 `canvas.md` is the only per-agent memory file: facts with a source path, gaps, the draft outline, and a handoff with Done, Artifacts, Open gaps, and Next. Create it from `/templates/memory/canvas.md` if it is missing. Update it before every delegation and before you return. Append; do not wipe prior decisions. A downstream phase agent may read an upstream canvas. Do not rewrite another agent's canvas.
 `/artifacts/artifact.yaml` is the structured index: identity, status, a short summary, and the paths of deliverables the active skill produced. Read it first. Use `/templates/artifact.yaml` for the shape. Register every new deliverable there. Do not put the canvas body in it.
 Long drafts go to `/scratch/{folder}/drafts/<task>.md`. Pass paths, not document bodies.
-Pick the one skill whose description matches the user's answer. `read_file` that `SKILL.md` once as the router and turn its phases into `write_todos`. Read only the module or render contract for the `in_progress` phase. Use `read_file(path, limit=1000)` when that file is long, then continue at `offset=1000` only if that page stops before the phase's last step.
+{plan}
 After each phase, and before any delegation, reduce what must survive into your canvas: facts with a source path, gaps, decisions, and the next step. Use the sections in `/templates/memory/canvas.md`. Do not paste the skill body or draft text.
 Chat history is compacted automatically. After a phase is on the canvas, do not re-read earlier modules. Later steps must be recoverable from the canvas and the todos.
 Record facts on your canvas with a source path. If a required fact, decision, or confirmation is missing, ask the user with `ask_user` or `ask_user_interrupt` and wait for the answer. Do not invent a value.

@@ -2,17 +2,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from src.workflows.agents.prompt_blocks import (
-    build_default_middleware,
-    compose_system_prompt,
-)
+from src.workflows.agents.prompt_blocks import compose_system_prompt
 
 _SUPERVISOR_RESPONSIBILITIES = """## Agent Responsibilities
 
 Your canvas is `/scratch/supervisor/canvas.md`.
 You are the only agent that reads every canvas. Before any user summary or phase change, read `/artifacts/artifact.yaml` and all three canvas files, then speak from those files.
 Coordinate the application migration lifecycle from intake through discovery and
-target-platform design:
+target-platform design.
+Before any delegation, call `write_todos` once with `intake` (agent `supervisor`), `discovery` (agent `discovery-agent`), and `design` (agent `design-agent`, depends_on `discovery`). That list is the delegation record.
 1. **Intake**: Follow the collector skill.
 2. **Discovery & Review**: Delegate discovery to `discovery-agent`. The task names the discovery skill path, `/scratch/supervisor/canvas.md`, and `/scratch/discovery/canvas.md`. Summarize the outcome for the user, and confirm whether they are satisfied. If not, delegate to `general-purpose`. The task states only the artifact path and the change. Re-confirm.
 3. **Design & Review**: Delegate design to `design-agent`. The task names the design skill path, `/scratch/discovery/canvas.md`, and `/scratch/design/canvas.md`. Summarize the outcome for the user, and confirm whether they are satisfied. If not, delegate to `general-purpose`. The task states only the artifact path and the change. Re-confirm.
@@ -51,9 +49,12 @@ async def build_supervisor_agent(
     design_agent: Any | None = None,
 ) -> Any:
     """Build the DICE Supervisor deep-agent compiled graph with Discovery and Design as CompiledSubAgents."""
+    from langchain_quickjs import CodeInterpreterMiddleware
+
     from src.workflows.agents.deep_state import DICEDeepAgentState
     from src.workflows.agents.design.agent import build_design_agent
     from src.workflows.agents.discovery.agent import build_discovery_agent
+    from src.workflows.agents.supervisor.todo_middleware import SupervisorTodoMiddleware
     from src.workflows.agents.supervisor.tools import (
         ask_user,
         ask_user_interrupt,
@@ -128,7 +129,7 @@ async def build_supervisor_agent(
     create_kwargs: dict[str, Any] = {
         "model": llm,
         "tools": tools,
-        "middleware": build_default_middleware(),
+        "middleware": [SupervisorTodoMiddleware(), CodeInterpreterMiddleware()],
         "subagents": subagents,
         "system_prompt": system_prompt,
         "name": "dice_supervisor_agent",

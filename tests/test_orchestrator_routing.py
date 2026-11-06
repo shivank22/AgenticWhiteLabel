@@ -151,6 +151,132 @@ def test_artifact_write_replaces_existing_file():
     assert "second" in backend.read(path).file_data["content"]
 
 
+def test_supervisor_todo_middleware_is_the_only_write_todos():
+    from langchain.agents.middleware import TodoListMiddleware
+
+    from src.workflows.agents.supervisor.todo_middleware import SupervisorTodoMiddleware
+
+    middleware = SupervisorTodoMiddleware()
+    assert isinstance(middleware, TodoListMiddleware)
+    assert [tool.name for tool in middleware.tools] == ["write_todos"]
+
+
+def _task_request(subagent_type: str, todos: list[dict]):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        tool_call={
+            "name": "task",
+            "id": "call-1",
+            "args": {"subagent_type": subagent_type, "description": "do the phase"},
+        },
+        state={"todos": todos},
+    )
+
+
+def _phase_todos() -> list[dict]:
+    return [
+        {
+            "id": "intake",
+            "content": "Intake",
+            "status": "pending",
+            "agent": "supervisor",
+            "parent_id": None,
+            "depends_on": [],
+        },
+        {
+            "id": "discovery",
+            "content": "Discovery",
+            "status": "pending",
+            "agent": "discovery-agent",
+            "parent_id": None,
+            "depends_on": [],
+        },
+        {
+            "id": "design",
+            "content": "Design",
+            "status": "pending",
+            "agent": "design-agent",
+            "parent_id": None,
+            "depends_on": ["discovery"],
+        },
+    ]
+
+
+def test_supervisor_todos_block_design_until_discovery_completes():
+    from langchain_core.messages import ToolMessage
+
+    from src.workflows.agents.supervisor.todo_middleware import SupervisorTodoMiddleware
+
+    called = False
+
+    def handler(_request):
+        nonlocal called
+        called = True
+        return ToolMessage(content="ran", tool_call_id="call-1", name="task")
+
+    result = SupervisorTodoMiddleware().wrap_tool_call(
+        _task_request("design-agent", _phase_todos()),
+        handler,
+    )
+    assert called is False
+    assert isinstance(result, ToolMessage)
+    assert result.status == "error"
+    assert "discovery" in result.content
+
+
+def test_supervisor_todos_mark_discovery_completed():
+    from langchain_core.messages import ToolMessage
+    from langgraph.types import Command
+
+    from src.workflows.agents.supervisor.todo_middleware import SupervisorTodoMiddleware
+
+    def handler(_request):
+        return Command(
+            update={
+                "todos": [{"id": "from-child", "content": "ignore", "status": "completed"}],
+                "messages": [
+                    ToolMessage(content="done", tool_call_id="call-1", name="task")
+                ],
+            }
+        )
+
+    result = SupervisorTodoMiddleware().wrap_tool_call(
+        _task_request("discovery-agent", _phase_todos()),
+        handler,
+    )
+    assert isinstance(result, Command)
+    todos = {item["id"]: item for item in result.update["todos"]}
+    assert "from-child" not in todos
+    assert todos["discovery"]["status"] == "completed"
+    assert todos["design"]["status"] == "pending"
+    assert todos["design"]["content"] == "Design"
+    assert result.update["messages"][0].content == "done"
+
+
+def test_supervisor_todos_propagate_interrupt():
+    from langgraph.errors import GraphBubbleUp
+
+    from src.workflows.agents.supervisor.todo_middleware import SupervisorTodoMiddleware
+
+    def handler(_request):
+        raise GraphBubbleUp()
+
+    with pytest.raises(GraphBubbleUp):
+        SupervisorTodoMiddleware().wrap_tool_call(
+            _task_request("discovery-agent", _phase_todos()),
+            handler,
+        )
+
+
+def test_supervisor_prompt_names_write_todos_and_canvas():
+    from src.workflows.agents.supervisor.agent import _SUPERVISOR_SYSTEM_PROMPT
+
+    assert "write_todos" in _SUPERVISOR_SYSTEM_PROMPT
+    assert "write_task_tree" not in _SUPERVISOR_SYSTEM_PROMPT
+    assert "/scratch/supervisor/canvas.md" in _SUPERVISOR_SYSTEM_PROMPT
+
+
 def test_any_artifact_path_is_non_empty_validated():
     assert has_validator("artifacts/design/future-platform.md")
     assert validate_artifact("artifacts/design/future-platform.md", "ok").ok
