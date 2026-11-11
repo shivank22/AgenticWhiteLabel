@@ -1,7 +1,13 @@
 """Discovery agent tools — authenticated API and code analysis."""
 
 from src.workflows.agents.discovery.tools.authenticated_api import call_authenticated_api
-from src.workflows.tools.hitl import ask_user, ask_user_interrupt, set_phase
+from src.workflows.tools.hitl import (
+    ask_user,
+    ask_user_interrupt,
+    check_phase_readiness,
+    set_phase,
+    transition_phase,
+)
 from src.workflows.tools.stubs import (
     proteas_code_analysis,
     select_repositories,
@@ -10,7 +16,9 @@ from src.workflows.tools.stubs import (
 __all__ = [
     "ask_user",
     "ask_user_interrupt",
+    "check_phase_readiness",
     "set_phase",
+    "transition_phase",
     "call_authenticated_api",
     "select_repositories",
     "proteas_code_analysis",
